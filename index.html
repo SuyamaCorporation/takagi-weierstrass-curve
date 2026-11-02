@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高木-ワイエルシュトラスフラクタル曲線</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+<div class="max-w-4xl mx-auto">
+  <h1 class="text-2xl font-bold text-center mb-4 text-cyan-400">高木-ワイエルシュトラスフラクタル曲線</h1>
+  <div class="flex flex-col lg:flex-row gap-4">
+    <div class="flex-1">
+      <canvas id="canvas" width="620" height="400"
+        class="bg-gray-900 rounded-xl border border-gray-700 w-full cursor-crosshair"
+        aria-label="フラクタル曲線描画キャンバス"></canvas>
+      <div class="flex gap-2 mt-2">
+        <button id="btnAnimate" aria-label="倍音アニメーション"
+          class="flex-1 bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition">
+          ▶ アニメ
+        </button>
+        <button id="btnStop" aria-label="停止"
+          class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition">
+          ■ 停止
+        </button>
+        <button id="btnZoomIn" aria-label="拡大" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition">＋</button>
+        <button id="btnZoomOut" aria-label="縮小" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition">－</button>
+      </div>
+    </div>
+    <div class="lg:w-64 space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-1">曲線タイプ</label>
+        <select id="curveType" aria-label="曲線タイプ選択"
+          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-100">
+          <option value="weierstrass">ワイエルシュトラス関数</option>
+          <option value="takagi">高木関数</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-1">
+          係数 a: <span id="aLabel">0.5</span>
+        </label>
+        <input type="range" id="aCoef" min="0.3" max="0.9" step="0.01" value="0.5"
+          aria-label="係数a" class="w-full accent-cyan-500">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-1">
+          係数 b: <span id="bLabel">7</span>
+        </label>
+        <input type="range" id="bCoef" min="2" max="15" step="1" value="7"
+          aria-label="係数b" class="w-full accent-cyan-500">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-1">
+          倍音数: <span id="harmonicsLabel">10</span>
+        </label>
+        <input type="range" id="harmonics" min="1" max="15" step="1" value="10"
+          aria-label="倍音数" class="w-full accent-cyan-500">
+      </div>
+      <div class="bg-gray-800 rounded-lg p-3 text-sm space-y-1">
+        <div class="text-gray-400">フラクタル次元の推定値</div>
+        <div id="dimDisplay" class="text-2xl font-bold text-cyan-400">-</div>
+        <div id="formulaDisplay" class="text-xs text-gray-500 font-mono mt-1"></div>
+      </div>
+      <div class="text-xs text-gray-500 leading-relaxed">
+        <p>マウスホイールでズーム。ワイエルシュトラス関数は連続だが至る所微分不可能な「病的関数」です。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let zoom = 1, offsetX = 0;
+let animRunning = false, animFrame = null, animH = 1;
+
+function weierstrassF(x, a, b, n) {
+  let sum = 0;
+  for (let k = 0; k < n; k++) sum += Math.pow(a, k) * Math.cos(Math.pow(b, k) * Math.PI * x);
+  return sum;
+}
+
+function takagiF(x, n) {
+  let sum = 0;
+  for (let k = 0; k < n; k++) {
+    const scale = Math.pow(2, k);
+    const t = scale * x;
+    sum += (1 / scale) * Math.min(t - Math.floor(t), Math.ceil(t) - t);
+  }
+  return sum;
+}
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(0, 0, W, H);
+
+  const a = parseFloat(document.getElementById('aCoef').value);
+  const b = parseInt(document.getElementById('bCoef').value);
+  const n = parseInt(document.getElementById('harmonics').value);
+  const type = document.getElementById('curveType').value;
+
+  // Draw grid
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 1;
+  for (let gx = 0; gx < W; gx += W/8) {
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+  }
+  for (let gy = 0; gy < H; gy += H/8) {
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+  }
+
+  // Compute curve values
+  const samples = W * 2;
+  const xs = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * 4 / zoom + offsetX - 2 / zoom;
+    xs.push(type === 'weierstrass' ? weierstrassF(t, a, b, n) : takagiF(Math.abs(t % 2), n));
+  }
+  const yMin = Math.min(...xs), yMax = Math.max(...xs);
+  const yRange = yMax - yMin || 1;
+
+  // Gradient line
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, '#06b6d4');
+  grad.addColorStop(0.5, '#a855f7');
+  grad.addColorStop(1, '#06b6d4');
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i <= samples; i++) {
+    const px = (i / samples) * W;
+    const py = H - ((xs[i] - yMin) / yRange) * (H - 40) - 20;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Dimension estimate
+  const dim = type === 'weierstrass'
+    ? (2 + Math.log(a) / Math.log(b)).toFixed(3)
+    : '1.000 (≈1)';
+  document.getElementById('dimDisplay').textContent = `D ≈ ${dim}`;
+  document.getElementById('formulaDisplay').textContent =
+    type === 'weierstrass'
+      ? `Σ a^n·cos(b^n·π·x)  a=${a}, b=${b}`
+      : `Σ (1/2^n)·λ(2^n·x)  n=${n}`;
+}
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  zoom = Math.max(0.5, Math.min(50, zoom * (e.deltaY < 0 ? 1.2 : 0.83)));
+  draw();
+}, { passive: false });
+
+document.getElementById('btnZoomIn').addEventListener('click', () => { zoom = Math.min(50, zoom * 1.5); draw(); });
+document.getElementById('btnZoomOut').addEventListener('click', () => { zoom = Math.max(0.5, zoom / 1.5); draw(); });
+
+document.getElementById('btnAnimate').addEventListener('click', () => {
+  if (animRunning) return;
+  animRunning = true; animH = 1;
+  function step() {
+    document.getElementById('harmonics').value = animH;
+    document.getElementById('harmonicsLabel').textContent = animH;
+    draw();
+    animH++;
+    if (animH <= 15 && animRunning) {
+      animFrame = setTimeout(() => requestAnimationFrame(step), 300);
+    } else { animRunning = false; }
+  }
+  requestAnimationFrame(step);
+});
+
+document.getElementById('btnStop').addEventListener('click', () => {
+  animRunning = false;
+  if (animFrame) clearTimeout(animFrame);
+});
+
+['aCoef','bCoef','harmonics','curveType'].forEach(id => {
+  document.getElementById(id).addEventListener('input', e => {
+    const labelMap = { aCoef: 'aLabel', bCoef: 'bLabel', harmonics: 'harmonicsLabel' };
+    if (labelMap[id]) document.getElementById(labelMap[id]).textContent = e.target.value;
+    draw();
+  });
+});
+
+draw();
+</script>
+</body>
+</html>
